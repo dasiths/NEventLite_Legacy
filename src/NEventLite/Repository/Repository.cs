@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using NEventLite.Domain;
 using NEventLite.Events;
+using NEventLite.Event_Bus;
 using NEventLite.Exceptions;
+using NEventLite.Extensions;
 using NEventLite.Snapshot;
 using NEventLite.Storage;
 
@@ -14,30 +18,37 @@ namespace NEventLite.Repository
         public IEventStorageProvider EventStorageProvider { get; }
         public ISnapshotStorageProvider SnapshotStorageProvider { get; }
 
-        private DateTime CommitStartTime;
+        public IEventBus EventBus { get; }
 
-        public Repository(IEventStorageProvider eventStorageProvider, ISnapshotStorageProvider snapshotStorageProvider)
+        public Repository(IEventStorageProvider eventStorageProvider, ISnapshotStorageProvider snapshotStorageProvider, IEventBus eventBus)
         {
             EventStorageProvider = eventStorageProvider;
             SnapshotStorageProvider = snapshotStorageProvider;
+            EventBus = eventBus;
         }
 
-        public T GetById(Guid id)
+        public virtual T GetById(Guid id)
         {
-
             T item = null;
-            var snapshot = SnapshotStorageProvider.GetSnapshot(typeof(T), id);
+
+            var isSnapshottable = typeof(ISnapshottable).GetTypeInfo().IsAssignableFrom(typeof(T));
+            Snapshot.Snapshot snapshot = null;
+
+            if ((isSnapshottable) && (SnapshotStorageProvider != null))
+            {
+                snapshot = SnapshotStorageProvider.GetSnapshot(typeof(T), id);
+            }
 
             if (snapshot != null)
             {
                 item = new T();
-                ((ISnapshottable)item).SetSnapshot(snapshot);
-                var events = EventStorageProvider.GetEvents(typeof(T),id, snapshot.Version + 1, int.MaxValue);
+                ((ISnapshottable)item).ApplySnapshot(snapshot);
+                var events = EventStorageProvider.GetEvents(typeof(T), id, snapshot.Version + 1, int.MaxValue);
                 item.LoadsFromHistory(events);
             }
             else
             {
-                var events = EventStorageProvider.GetEvents(typeof(T),id, 0, int.MaxValue);
+                var events = EventStorageProvider.GetEvents(typeof(T), id, 0, int.MaxValue);
 
                 if (events.Any())
                 {
@@ -49,25 +60,12 @@ namespace NEventLite.Repository
             return item;
         }
 
-        public void Save(T aggregate)
+        public virtual void Save(T aggregate)
         {
-            HandlePreCommited(aggregate);
-            HandlePostCommited(CommitToStorage(aggregate));
+            CommitChanges(aggregate);
         }
 
-        public void HandlePreCommited(T aggregate)
-        {
-            CommitStartTime = DateTime.Now;
-            Console.WriteLine($"Trying to commit {aggregate.GetUncommittedChanges().Count()} events to storage.");
-        }
-
-        public void HandlePostCommited(IEnumerable<IEvent> events)
-        {
-            //Todo: Publish to EventBus
-            Console.WriteLine($"Committed {events.Count()} events to storage in {DateTime.Now.Subtract(CommitStartTime).TotalMilliseconds} ms.");
-        }
-
-        private IEnumerable<IEvent> CommitToStorage(AggregateRoot aggregate)
+        private IEnumerable<IEvent> CommitChanges(AggregateRoot aggregate)
         {
             var expectedVersion = aggregate.LastCommittedVersion;
 
@@ -82,27 +80,39 @@ namespace NEventLite.Repository
                 throw new ConcurrencyException($"Aggregate {item.Id} has been modified externally and has an updated state. Can't commit changes.");
             }
 
-            var ChangesToCommit = aggregate.GetUncommittedChanges();
+            var changesToCommit = aggregate.GetUncommittedChanges().ToList();
+
             EventStorageProvider.CommitChanges(aggregate.GetType(), aggregate);
 
             //If the Aggregate implements snaphottable
             var snapshottable = aggregate as ISnapshottable;
 
-            if (snapshottable != null)
+            if ((snapshottable != null) && (SnapshotStorageProvider != null))
             {
                 //Every N events we save a snapshot
                 if ((aggregate.CurrentVersion >= SnapshotStorageProvider.SnapshotFrequency) &&
-                    (aggregate.CurrentVersion - aggregate.LastCommittedVersion > SnapshotStorageProvider.SnapshotFrequency) || (aggregate.CurrentVersion % SnapshotStorageProvider.SnapshotFrequency == 0))
+                        (
+                            (changesToCommit.Count >= SnapshotStorageProvider.SnapshotFrequency) ||
+                            (aggregate.CurrentVersion % SnapshotStorageProvider.SnapshotFrequency < changesToCommit.Count) ||
+                            (aggregate.CurrentVersion % SnapshotStorageProvider.SnapshotFrequency == 0)
+                        )
+                    )
                 {
-                    SnapshotStorageProvider.SaveSnapshot(aggregate.GetType(), snapshottable.GetSnapshot());
+                    SnapshotStorageProvider.SaveSnapshot(aggregate.GetType(), snapshottable.TakeSnapshot());
                 }
             }
 
+            //Publish to event bus
+            PublishToEventBus(changesToCommit);
+
             aggregate.MarkChangesAsCommitted();
 
-            return ChangesToCommit;
+            return changesToCommit;
         }
 
-
+        private void PublishToEventBus(List<IEvent> changesToCommit)
+        {
+            EventBus.Publish(changesToCommit);
+        }
     }
 }

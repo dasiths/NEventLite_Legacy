@@ -4,27 +4,29 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using NEventLite.Domain;
+using NEventLite.Events;
 
 namespace NEventLite.Repository
 {
-    public abstract class RepositoryDecorator<TAggregate> 
+    public abstract class RepositoryDecorator<TAggregate>:IRepository<TAggregate> 
         where TAggregate:AggregateRoot, new() 
     {
-        protected readonly IRepositoryBase<TAggregate> RepositoryBase;
+        protected readonly IRepository<TAggregate> Repository;
 
-        protected RepositoryDecorator(IRepositoryBase<TAggregate>  repositoryBase)
+        protected RepositoryDecorator(IRepository<TAggregate>  repository)
         {
-            RepositoryBase = repositoryBase;
+            Repository = repository;
         }
 
         public virtual TAggregate GetById(Guid Id)
         {
-            return RepositoryBase.GetById(Id);
+            return Repository.GetById(Id);
         }
 
         public virtual void Save(TAggregate aggregate)
         {
-            RepositoryBase.Save(aggregate);
+            Repository.Save(aggregate);
         }
+
     }
 }

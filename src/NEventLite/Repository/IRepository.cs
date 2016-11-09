@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using NEventLite.Domain;
+using NEventLite.Events;
 
 namespace NEventLite.Repository
 {

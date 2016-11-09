@@ -13,9 +13,9 @@ This way we can contruct the state for the aggregate to any point in time by rep
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using NEventLite.Events;
 using NEventLite.Exceptions;
+using NEventLite.Extensions;
 
 namespace NEventLite.Domain
 {
@@ -82,8 +82,8 @@ namespace NEventLite.Domain
         {
             foreach (var e in history)
             {
-                //We call HandleEvent with isNew parameter set to false as we are replaying a historical event
-                HandleEvent(e, false);
+                //We call ApplyEvent with isNew parameter set to false as we are replaying a historical event
+                ApplyEvent(e, false);
             }
             LastCommittedVersion = CurrentVersion;
         }
@@ -92,9 +92,9 @@ namespace NEventLite.Domain
         /// This is used to handle new events
         /// </summary>
         /// <param name="event"></param>
-        protected void HandleEvent(IEvent @event)
+        protected void ApplyEvent(IEvent @event)
         {
-            HandleEvent(@event, true);
+            ApplyEvent(@event, true);
         }
 
         /// <summary>
@@ -102,30 +102,26 @@ namespace NEventLite.Domain
         /// </summary>
         /// <param name="event">The event to handle</param>
         /// <param name="isNew">Is this a new Event</param>
-        private void HandleEvent(IEvent @event, bool isNew)
+        private void ApplyEvent(IEvent @event, bool isNew)
         {
             //All state changes to AggregateRoot must happen via the Apply method
             //Make sure the right Apply method is called with the right type.
             //We can you use dynamic objects or reflection for this.
 
-            try
+            if (CanApply(@event))
             {
-                var method = ((object)this).GetType().GetTypeInfo().GetMethod(ApplyMethodNameInEventHandler, new Type[] { @event.GetType() }); //Find the right method
-                method.Invoke(this, new object[] { @event }); //invoke with the event as argument
-
-                // or we can use dynamics
-                //dynamic d = this;
-                //dynamic e = @event;
-                //d.Apply(e);
+                DoApply(@event);
 
                 if (isNew)
                 {
                     _uncommittedChanges.Add(@event); //only add to the events collection if it's a new event
                 }
             }
-            catch (Exception ex)
+            else
             {
-                throw new EventHandlerApplyMethodMissingException(ex.Message);
+                throw new AggregateStateMismatchException(
+                    $"The event target version is {@event.AggregateId}.(Version {@event.TargetVersion}) and " +
+                    $"AggregateRoot version is {this.Id}.(Version {CurrentVersion})");
             }
 
         }
@@ -134,13 +130,11 @@ namespace NEventLite.Domain
         /// Determine if the current event can be applied
         /// </summary>
         /// <param name="event">Event to apply</param>
-        /// <param name="isCreationEvent">Is this the first event for the aggregate</param>
         /// <returns></returns>
-        private bool CanApply(IEvent @event, bool isCreationEvent)
+        private bool CanApply(IEvent @event)
         {
-
             //Check to see if event is applying against the right Aggregate and matches the target version
-            if (((isCreationEvent) || (Id == @event.AggregateId)) && (CurrentVersion == @event.TargetVersion))
+            if (((GetStreamState()== StreamState.NoStream) || (Id == @event.AggregateId)) && (CurrentVersion == @event.TargetVersion))
             {
                 return true;
             }
@@ -155,17 +149,16 @@ namespace NEventLite.Domain
         /// </summary>
         /// <param name="event">Event to apply</param>
         /// <param name="isCreationEvent">Is this the event as a result of construction of the Aggregate</param>
-        protected void ApplyGenericEvent(IEvent @event, bool isCreationEvent)
+        private void DoApply(IEvent @event)
         {
-            if (CanApply(@event, isCreationEvent))
+            if (GetStreamState() == StreamState.NoStream)
             {
                 Id = @event.AggregateId; //This is only needed for the very first event as every other event CAN ONLY apply to matching ID
-                CurrentVersion++;
             }
-            else
-            {
-                throw new AggregateStateMismatchException($"The event target version is {@event.TargetVersion} and AggregateRoot version is {CurrentVersion}");
-            }
+            
+            @event.InvokeOnAggregate(this, ApplyMethodNameInEventHandler);
+
+            CurrentVersion++;
         }
     }
 }
