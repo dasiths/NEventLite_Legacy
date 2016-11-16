@@ -3,33 +3,36 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using NEventLite.Domain;
 using NEventLite.Events;
 using NEventLite.Event_Bus;
 using NEventLite.Exceptions;
 using NEventLite.Extensions;
+using NEventLite.Logger;
 using NEventLite.Snapshot;
 using NEventLite.Storage;
 
 namespace NEventLite.Repository
 {
-    public class Repository<T> : IRepository<T> where T : AggregateRoot, new()
+    public class Repository: IRepository
     {
         public IEventStorageProvider EventStorageProvider { get; }
+
         public ISnapshotStorageProvider SnapshotStorageProvider { get; }
 
-        public IEventBus EventBus { get; }
+        public IEventPublisher EventPublisher { get; }
 
-        public Repository(IEventStorageProvider eventStorageProvider, ISnapshotStorageProvider snapshotStorageProvider, IEventBus eventBus)
+        public Repository(IEventStorageProvider eventStorageProvider, ISnapshotStorageProvider snapshotStorageProvider, IEventPublisher eventPublisher)
         {
             EventStorageProvider = eventStorageProvider;
             SnapshotStorageProvider = snapshotStorageProvider;
-            EventBus = eventBus;
+            EventPublisher = eventPublisher;
         }
 
-        public virtual T GetById(Guid id)
+        public virtual T GetById<T>(Guid id) where T:AggregateRoot
         {
-            T item = null;
+            T item = default(T);
 
             var isSnapshottable = typeof(ISnapshottable).GetTypeInfo().IsAssignableFrom(typeof(T));
             Snapshot.Snapshot snapshot = null;
@@ -41,7 +44,7 @@ namespace NEventLite.Repository
 
             if (snapshot != null)
             {
-                item = new T();
+                item = CreateInstance<T>();
                 ((ISnapshottable)item).ApplySnapshot(snapshot);
                 var events = EventStorageProvider.GetEvents(typeof(T), id, snapshot.Version + 1, int.MaxValue);
                 item.LoadsFromHistory(events);
@@ -52,7 +55,7 @@ namespace NEventLite.Repository
 
                 if (events.Any())
                 {
-                    item = new T();
+                    item = CreateInstance<T>();
                     item.LoadsFromHistory(events);
                 }
             }
@@ -60,12 +63,15 @@ namespace NEventLite.Repository
             return item;
         }
 
-        public virtual void Save(T aggregate)
+        public virtual void Save<T>(T aggregate) where T:AggregateRoot
         {
-            CommitChanges(aggregate);
+            if (aggregate.HasUncommittedChanges())
+            {
+                CommitChanges(aggregate);
+            }
         }
 
-        private IEnumerable<IEvent> CommitChanges(AggregateRoot aggregate)
+        private void CommitChanges(AggregateRoot aggregate)
         {
             var expectedVersion = aggregate.LastCommittedVersion;
 
@@ -82,7 +88,14 @@ namespace NEventLite.Repository
 
             var changesToCommit = aggregate.GetUncommittedChanges().ToList();
 
-            EventStorageProvider.CommitChanges(aggregate.GetType(), aggregate);
+            //perform pre commit actions
+            foreach (var e in changesToCommit)
+            {
+                DoPreCommitTasks(e);
+            }
+
+            //Commit events to storage provider
+            EventStorageProvider.CommitChanges(aggregate);
 
             //If the Aggregate implements snaphottable
             var snapshottable = aggregate as ISnapshottable;
@@ -102,17 +115,25 @@ namespace NEventLite.Repository
                 }
             }
 
-            //Publish to event bus
-            PublishToEventBus(changesToCommit);
+            //Publish to event publisher asynchronously
+            PublishToEventBus(changesToCommit.ToList());
 
             aggregate.MarkChangesAsCommitted();
+        }
 
-            return changesToCommit;
+        private static void DoPreCommitTasks(IEvent e)
+        {
+            e.EventCommittedTimestamp = DateTime.UtcNow;
         }
 
         private void PublishToEventBus(List<IEvent> changesToCommit)
         {
-            EventBus.Publish(changesToCommit);
+            EventPublisher.Publish(changesToCommit);
+        }
+
+        private static T CreateInstance<T>() where T : AggregateRoot
+        {
+            return (T)Activator.CreateInstance(typeof(T));
         }
     }
 }

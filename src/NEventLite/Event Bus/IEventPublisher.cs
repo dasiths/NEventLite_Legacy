@@ -7,8 +7,8 @@ using NEventLite.Events;
 
 namespace NEventLite.Event_Bus
 {
-    public interface IEventBus
+    public interface IEventPublisher
     {
-        void Publish(IEnumerable<IEvent> events);
+        Task Publish(IEnumerable<IEvent> events);
     }
 }
