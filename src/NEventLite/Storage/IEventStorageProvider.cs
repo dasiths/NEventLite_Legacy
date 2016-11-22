@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using NEventLite.Domain;
 using NEventLite.Events;
 
@@ -7,9 +8,9 @@ namespace NEventLite.Storage
 {
     public interface IEventStorageProvider
     {
-        IEnumerable<IEvent> GetEvents(Type aggregateType, Guid aggregateId, int start, int count);
-        IEvent GetLastEvent(Type aggregateType, Guid aggregateId);
-        void CommitChanges(AggregateRoot aggregate);
+        Task<IEnumerable<IEvent>> GetEventsAsync(Type aggregateType, Guid aggregateId, int start, int count);
+        Task<IEvent> GetLastEventAsync(Type aggregateType, Guid aggregateId);
+        Task CommitChangesAsync(AggregateRoot aggregate);
     }
 }
 

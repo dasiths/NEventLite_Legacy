@@ -5,10 +5,10 @@ using System.Text;
 using System.Threading.Tasks;
 using NEventLite.Events;
 
-namespace NEventLite.Event_Bus
+namespace NEventLite.Event_Handlers
 {
-    public interface IEventPublisher
+    public interface IEventHandler<T> where T:IEvent
     {
-        Task PublishAsync(IEvent @event);
+        Task HandleEventAsync(T @event);
     }
 }

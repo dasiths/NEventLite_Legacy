@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using NEventLite.Domain;
@@ -13,9 +12,10 @@ namespace NEventLite.Extensions
     {
         public static void InvokeOnAggregate(this Events.IEvent @event, AggregateRoot aggregate, string methodName)
         {
-            try
+            var method = ReflectionHelper.GetMethod(aggregate.GetType(), methodName, new Type[] { @event.GetType() }); //Find the right method
+
+            if (method != null)
             {
-                var method = ((object)aggregate).GetType().GetTypeInfo().GetMethod(methodName, new Type[] { @event.GetType() }); //Find the right method
                 method.Invoke(aggregate, new object[] { @event }); //invoke with the event as argument
 
                 // or we can use dynamics
@@ -23,11 +23,10 @@ namespace NEventLite.Extensions
                 //dynamic e = @event;
                 //d.Apply(e);
             }
-            catch (Exception ex)
+            else
             {
-                throw new EventHandlerApplyMethodMissingException(ex.Message);
+                throw new AggregateEventOnApplyMethodMissingException($"No event Apply method found on {aggregate.GetType()} for {@event.GetType()}");
             }
-
         }
     }
 }
