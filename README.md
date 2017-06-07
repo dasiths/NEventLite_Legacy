@@ -1,5 +1,5 @@
 # NEventLite_Core
-NEventLite fork targeting the .NET Standard framework. This is the source for the frmaework only. Storage providers have not been ported yet and you will need to implement your own (Very easily) by implementing the following interfaces. 
+NEventLite fork targeting the .NET Standard framework. This is the source for the framework only. Storage providers have not been ported yet and you will need to implement your own (Very easily) by using the following interfaces. 
 
 public interface IEventStorageProvider
 {
