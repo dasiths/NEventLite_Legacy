@@ -5,7 +5,7 @@ NEventLite fork targeting the .NET Standard framework. This is the source for th
 public interface IEventStorageProvider
 {
 	Task<IEnumerable<IEvent>> GetEventsAsync(Type aggregateType, Guid aggregateId, int start, int count);
-	Task GetLastEventAsync(Type aggregateType, Guid aggregateId);
+	Task<IEvent> GetLastEventAsync(Type aggregateType, Guid aggregateId);
 	Task CommitChangesAsync(AggregateRoot aggregate);
 }
 
