@@ -1,4 +1,7 @@
-# NEventLite_Core
+# The main repo framework now targets netstandard 1.4 at https://github.com/dasiths/NEventLite
+NEventLite is a light weight .NET framework for Event Sourcing with support for custom Event and Snapshot Stores (EventStore, Redis, SQL Server or Custom) written in C#.
+
+# This Has Been Deprecated
 NEventLite fork targeting the .NET Standard framework. This is the source for the framework only. Storage providers have not been ported yet and you will need to implement your own (Very easily) by using the following interfaces. 
 
 ```csharp
@@ -17,5 +20,4 @@ public interface ISnapshotStorageProvider
 }
  ```
 
-# Full version targetting the .NET framework can be found at https://github.com/dasiths/NEventLite
-NEventLite is a light weight .NET framework for Event Sourcing with support for custom Event and Snapshot Stores (EventStore, Redis, SQL Server or Custom) written in C#.
+
